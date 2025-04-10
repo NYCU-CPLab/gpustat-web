@@ -62,3 +62,6 @@ target/
 # Ignore ssh and caddy directories
 ssh/
 caddy/
+
+# Ignore .env file
+.env
