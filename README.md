@@ -137,7 +137,7 @@ docker run --rm caddy:2-alpine caddy hash-password
 ## 4. Start the Services
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ## 5. Access gpustat-web
@@ -152,13 +152,13 @@ Open your browser and navigate to the address you specified in `SITE_ADDRESS`. Y
 
 ```bash
 # View logs
-docker-compose logs
+docker compose logs
 
 # Restart services
-docker-compose restart
+docker compose restart
 
 # Stop services
-docker-compose down
+docker compose down
 ```
 
 ## Troubleshooting
@@ -166,7 +166,7 @@ docker-compose down
 - **Domain issues**: If using a domain, ensure DNS records are properly configured.
 - **SSL errors**: For domains, Caddy will attempt to automatically provision SSL certificates.
   Make sure ports 80 and 443 are accessible from the internet for this to work.
-- **Connection issues**: Examine the logs with `docker-compose logs gpustat-web`.
+- **Connection issues**: Examine the logs with `docker compose logs gpustat-web`.
 - **Authentication problems**: Verify your username and password in the `.env` file.
 
 License
