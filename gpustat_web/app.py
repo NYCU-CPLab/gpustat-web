@@ -5,6 +5,7 @@ gpustat.web
 MIT License
 
 Copyright (c) 2018-2023 Jongwook Choi (@wookayin)
+Copyright (c) 2025 yuna0x0
 """
 
 from typing import List, Tuple, Optional, Union
@@ -51,13 +52,19 @@ context = Context()
 
 
 async def run_client(hostname: str, exec_cmd: str, *,
-                     port=22, verify_host: bool = True,
+                     port=22, username=None, verify_host: bool = True,
                      poll_delay=None, timeout=30.0,
                      name_length=None, verbose=False):
     '''An async handler to collect gpustat through a SSH channel.'''
     L = name_length or 0
     if poll_delay is None:
         poll_delay = context.interval
+
+    # For internal display purposes (logs, etc)
+    internal_display_name = f"{username}@{hostname}" if username else hostname
+
+    # For web display - show only hostname for security
+    web_display_name = hostname
 
     def _str(data: Union[bytes, str]) -> str:
         if isinstance(data, bytes):
@@ -68,29 +75,32 @@ async def run_client(hostname: str, exec_cmd: str, *,
         # establish a SSH connection.
         # https://asyncssh.readthedocs.io/en/latest/api.html#asyncssh.SSHClientConnectionOptions
         conn_kwargs = dict()
+        if username:
+            conn_kwargs['username'] = username
         if not verify_host:
             conn_kwargs['known_hosts'] = None  # Disable SSH host verification
+
         async with asyncssh.connect(hostname, port=port, **conn_kwargs) as conn:
-            cprint(f"[{hostname:<{L}}] SSH connection established!", attrs=['bold'])
+            cprint(f"[{internal_display_name:<{L}}] SSH connection established!", attrs=['bold'])
 
             while True:
                 if False: #verbose: XXX DEBUG
-                    print(f"[{hostname:<{L}}] querying... ")
+                    print(f"[{internal_display_name:<{L}}] querying... ")
 
                 result = await asyncio.wait_for(conn.run(exec_cmd), timeout=timeout)
 
                 now = datetime.now().strftime('%Y/%m/%d-%H:%M:%S.%f')
                 if result.exit_status != 0:
-                    cprint(f"[{now} [{hostname:<{L}}] Error, exitcode={result.exit_status}", color='red')
+                    cprint(f"[{now} [{internal_display_name:<{L}}] Error, exitcode={result.exit_status}", color='red')
                     cprint(_str(result.stderr or ''), color='red')
                     stderr_summary = _str(result.stderr or '').split('\n')[0]
-                    context.host_set_message(hostname, colored(f'[exitcode {result.exit_status}] {stderr_summary}', 'red'))
+                    context.host_set_message(web_display_name, colored(f'[exitcode {result.exit_status}] {stderr_summary}', 'red'))
                 else:
                     if verbose:
-                        cprint(f"[{now} [{hostname:<{L}}] OK from gpustat "
+                        cprint(f"[{now} [{internal_display_name:<{L}}] OK from gpustat "
                                f"({len(_str(result.stdout or ''))} bytes)", color='cyan')
-                    # update data
-                    context.host_status[hostname] = result.stdout
+                    # update data - use only hostname for web display
+                    context.host_status[web_display_name] = result.stdout
 
                 # wait for a while...
                 await asyncio.sleep(poll_delay)
@@ -101,60 +111,77 @@ async def run_client(hostname: str, exec_cmd: str, *,
             await _loop_body()
 
         except asyncio.CancelledError:
-            cprint(f"[{hostname:<{L}}] Closed as being cancelled.", attrs=['bold'])
+            cprint(f"[{internal_display_name:<{L}}] Closed as being cancelled.", attrs=['bold'])
             break
         except (asyncio.TimeoutError) as ex:
             # timeout (retry)
-            cprint(f"Timeout after {timeout} sec: {hostname}", color='red')
-            context.host_set_message(hostname, colored(f"Timeout after {timeout} sec", 'red'))
+            cprint(f"Timeout after {timeout} sec: {internal_display_name}", color='red')
+            context.host_set_message(web_display_name, colored(f"Timeout after {timeout} sec", 'red'))
         except (asyncssh.misc.DisconnectError, asyncssh.misc.ChannelOpenError, OSError) as ex:
             # error or disconnected (retry)
-            cprint(f"Disconnected : {hostname}, {str(ex)}", color='red')
-            context.host_set_message(hostname, colored(str(ex), 'red'))
+            cprint(f"Disconnected : {internal_display_name}, {str(ex)}", color='red')
+            context.host_set_message(web_display_name, colored(str(ex), 'red'))
         except Exception as e:
             # A general exception unhandled, throw
-            cprint(f"[{hostname:<{L}}] {e}", color='red')
-            context.host_set_message(hostname, colored(f"{type(e).__name__}: {e}", 'red'))
+            cprint(f"[{internal_display_name:<{L}}] {e}", color='red')
+            context.host_set_message(web_display_name, colored(f"{type(e).__name__}: {e}", 'red'))
             cprint(traceback.format_exc())
             raise
 
         # retry upon timeout/disconnected, etc.
-        cprint(f"[{hostname:<{L}}] Disconnected, retrying in {poll_delay} sec...", color='yellow')
+        cprint(f"[{internal_display_name:<{L}}] Disconnected, retrying in {poll_delay} sec...", color='yellow')
         await asyncio.sleep(poll_delay)
 
+def _parse_host_string(netloc: str) -> Tuple[str, Optional[int], Optional[str]]:
+    """Parse a connection string (netloc) in the form of `[USER@]HOSTNAME[:PORT]`
+    and returns (HOSTNAME, PORT, USERNAME)."""
+    # Handle user@host format
+    username = None
+    if '@' in netloc:
+        username, netloc = netloc.split('@', 1)
+
+    # Parse the hostname and port
+    pr = urllib.parse.urlparse('ssh://{}/'.format(netloc))
+    assert pr.hostname is not None, netloc
+    return (pr.hostname, pr.port, username)
 
 async def spawn_clients(hosts: List[str], exec_cmd: str, *,
                         default_port: int, verify_host: bool = True,
                         verbose=False):
     '''Create a set of async handlers, one per host.'''
 
-    def _parse_host_string(netloc: str) -> Tuple[str, Optional[int]]:
-        """Parse a connection string (netloc) in the form of `HOSTNAME[:PORT]`
-        and returns (HOSTNAME, PORT)."""
-        pr = urllib.parse.urlparse('ssh://{}/'.format(netloc))
-        assert pr.hostname is not None, netloc
-        return (pr.hostname, pr.port)
-
     try:
-        host_names: List[str]
-        host_ports: List[int]
-        host_names, host_ports = zip(*(_parse_host_string(host) for host in hosts))  # type: ignore
+        host_infos = []
+        for host in hosts:
+            hostname, port, username = _parse_host_string(host)
+            host_infos.append((hostname, port, username))
 
-        # initial response
-        for hostname in host_names:
+        # Get display names - use just the hostname for web display
+        web_display_names = [hostname for hostname, _, _ in host_infos]
+
+        # For internal logs, we'll still use the full info
+        internal_display_names = [
+            f"{username}@{hostname}" if username else hostname
+            for hostname, _, username in host_infos
+        ]
+
+        # initial response - use just the hostname
+        for hostname in web_display_names:
             context.host_set_message(hostname, "Loading ...")
 
-        name_length = max(len(hostname) for hostname in host_names)
+        # For spacing in logs, use internal display names length
+        name_length = max(len(name) for name in internal_display_names)
 
         # launch all clients parallel
         await asyncio.gather(*[
             run_client(
                 hostname, exec_cmd,
                 port=port or default_port,
+                username=username,
                 verify_host=verify_host,
                 verbose=verbose, name_length=name_length
             )
-            for (hostname, port) in zip(host_names, host_ports)
+            for (hostname, port, username) in host_infos
         ])
     except Exception as ex:
         # TODO: throw the exception outside and let aiohttp abort startup
