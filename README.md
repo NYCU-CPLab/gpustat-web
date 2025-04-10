@@ -134,13 +134,19 @@ docker run --rm caddy:2-alpine caddy hash-password
 # Enter your password when prompted and copy the hash to your .env file
 ```
 
-## 4. Start the Services
+## 4. Build the Docker Image
+
+```bash
+docker compose build
+```
+
+## 5. Start the Services
 
 ```bash
 docker compose up -d
 ```
 
-## 5. Access gpustat-web
+## 6. Access gpustat-web
 
 Open your browser and navigate to the address you specified in `SITE_ADDRESS`. You'll be prompted for the username and password you configured in the `.env` file.
 
@@ -148,7 +154,7 @@ Open your browser and navigate to the address you specified in `SITE_ADDRESS`. Y
 - If using a domain: https://yourdomain.com (automatically uses HTTPS)
 - If using an IP address: http://your-ip-address
 
-## 6. Managing the Services
+## 7. Managing the Services
 
 ```bash
 # View logs
