@@ -1,0 +1,14 @@
+{$SITE_ADDRESS} {
+    # Basic authentication using environment variables
+    basicauth /* {
+        {$CADDY_AUTH_USERNAME} {$CADDY_AUTH_PASSWORD}
+    }
+
+    # Reverse proxy to gpustat-web
+    reverse_proxy gpustat-web:48109
+
+    # Optional logging
+    log {
+        output file /data/access.log
+    }
+}

@@ -72,97 +72,102 @@ To see CPU usage as well:
 python -m gpustat_web --exec 'gpustat --color --gpuname-width 25 && echo -en "CPU : \033[0;31m" && cpu-usage | ascii-bar 27'
 ```
 
-# Running the gpustat-web Docker Container
+# Running with Docker Compose and Basic Authentication
 
-## 1. Prepare SSH Files
+This setup provides gpustat-web behind a Caddy reverse proxy with basic authentication for added security.
+
+## 1. Clone the repository
+
+```bash
+git clone https://github.com/NYCU-CPLab/gpustat-web.git
+cd gpustat-web
+```
+
+## 2. Prepare SSH Files
 
 ### Create known_hosts File (For Host Verification)
 
 Option A: Generate using ssh-keyscan:
 ```bash
 # Create a new known_hosts file with your GPU hosts
-ssh-keyscan a.example.com b.example.com > known_hosts_gpustat
+mkdir ssh
+ssh-keyscan a.example.com b.example.com > ssh/known_hosts
 ```
 
 Option B: Copy from existing known_hosts:
 ```bash
-# If your hosts are already in your known_hosts file
-cp ~/.ssh/known_hosts known_hosts_gpustat
+# If your hosts are already in a known_hosts file
+mkdir ssh
+cp /path/to/known_hosts ssh/known_hosts
 ```
 
-Ensure your SSH key has correct permissions:
+### Prepare SSH Key
+
+Copy the SSH private key and set proper permissions:
 ```bash
-chmod 600 /path/to/your/id_ed25519
+cp /path/to/id_ed25519 ssh/id_ed25519
+chmod 600 ssh/id_ed25519
 ```
 
-## 2. Build the Docker Image
+## 3. Configure Environment Variables
 
-Build the Docker image using the Dockerfile:
+Copy the example environment file and edit it with your settings:
 ```bash
-docker build -t gpustat-web .
+cp .env.example .env
+mkdir -p caddy/data caddy/config
 ```
 
-## 3. Run the Docker Container
+Edit the `.env` file to set:
+- Your GPU host addresses (`GPU_HOSTS`)
+- Custom username and password for web access
+- Domain name or address for Caddy (`SITE_ADDRESS`)
+- Any other optional settings
 
-### Option A: With Host Verification (Recommended)
+**SITE_ADDRESS Options:**
+- For local access: `SITE_ADDRESS=localhost` or `SITE_ADDRESS=:80`
+- For a specific domain with automatic HTTPS: `SITE_ADDRESS=gpustat.example.com`
+- For IP address access: `SITE_ADDRESS=192.168.1.100`
 
+To generate a custom password hash:
 ```bash
-docker run -d -p 48109:48109 \
-  -v /path/to/your/known_hosts_gpustat:/root/.ssh/known_hosts:ro \
-  -v /path/to/your/id_ed25519:/root/.ssh/id_ed25519:ro \
-  --name gpustat-web gpustat-web \
-  user@a.example.com user@b.example.com
+docker run --rm caddy:2-alpine caddy hash-password
+# Enter your password when prompted and copy the hash to your .env file
 ```
 
-### Option B: Without Host Verification
-
-```bash
-docker run -d -p 48109:48109 \
-  -v /path/to/your/id_ed25519:/root/.ssh/id_ed25519:ro \
-  --name gpustat-web gpustat-web \
-  --no-verify-host user@a.example.com user@b.example.com
-```
-
-## 4. Using Synology Docker UI
-
-1. Open Docker in Synology DSM
-2. Go to the "Image" tab and select your "gpustat-web" image
-3. Click "Launch" to create a container
-4. Configure the container:
-   - Set a container name (e.g., "gpustat-web")
-   - In "Advanced Settings" > "Volume" tab:
-     - Add file mappings:
-       - Map your known_hosts_gpustat to /root/.ssh/known_hosts
-       - Map your id_ed25519 to /root/.ssh/id_ed25519
-   - In "Advanced Settings" > "Port Settings" tab:
-     - Map local port 48109 to container port 48109
-   - In the "Command" field, enter the hostnames with usernames:
-     ```
-     user@a.example.com user@b.example.com
-     ```
-     (Or use `--no-verify-host user@a.example.com user@b.example.com` if not using host verification)
-
-## 5. Access the Web Interface
-
-Open your browser and navigate to:
-```
-http://your-synology-ip:48109
-```
-
-## 6. Managing the Container
+## 4. Start the Services
 
 ```bash
-docker stop gpustat-web    # Stop the container
-docker start gpustat-web   # Start the container
-docker restart gpustat-web # Restart the container
-docker rm gpustat-web      # Remove the container
+docker-compose up -d
 ```
 
-## Additional Notes
+## 5. Access gpustat-web
 
-- Replace `user@a.example.com`, `user@b.example.com`, etc. with your actual username and host addresses
-- If you encounter connection issues, check the container logs with: `docker logs gpustat-web`
+Open your browser and navigate to the address you specified in `SITE_ADDRESS`. You'll be prompted for the username and password you configured in the `.env` file.
 
+- If using `localhost`: http://localhost
+- If using a domain: https://yourdomain.com (automatically uses HTTPS)
+- If using an IP address: http://your-ip-address
+
+## 6. Managing the Services
+
+```bash
+# View logs
+docker-compose logs
+
+# Restart services
+docker-compose restart
+
+# Stop services
+docker-compose down
+```
+
+## Troubleshooting
+
+- **Domain issues**: If using a domain, ensure DNS records are properly configured.
+- **SSL errors**: For domains, Caddy will attempt to automatically provision SSL certificates.
+  Make sure ports 80 and 443 are accessible from the internet for this to work.
+- **Connection issues**: Examine the logs with `docker-compose logs gpustat-web`.
+- **Authentication problems**: Verify your username and password in the `.env` file.
 
 License
 -------
